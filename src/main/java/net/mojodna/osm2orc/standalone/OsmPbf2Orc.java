@@ -75,7 +75,8 @@ public class OsmPbf2Orc {
                 .addField("uid", createLong())
                 .addField("user", createString())
                 .addField("version", createLong())
-                .addField("visible", createBoolean());
+                .addField("visible", createBoolean())
+                .addField("tile", createLong());
 
         Configuration conf = new Configuration();
         conf.setBoolean(OrcConf.BLOCK_PADDING.getAttribute(), false);
@@ -110,6 +111,7 @@ public class OsmPbf2Orc {
         BytesColumnVector user = (BytesColumnVector) batch.cols[10];
         LongColumnVector version = (LongColumnVector) batch.cols[11];
         LongColumnVector visible = (LongColumnVector) batch.cols[12];
+        LongColumnVector tile = (LongColumnVector) batch.cols[13];
 
         OsmIterator iterator = new PbfIterator(input, true);
         // parallel will make it faster but will produce bigger output files
@@ -207,6 +209,34 @@ public class OsmPbf2Orc {
 
                     if (!Double.isNaN(node.getLongitude())) {
                         lon.set(row, HiveDecimal.create(node.getLongitude()));
+                    }
+
+                    // Assign the node to a "tile" if it has coordinates
+                    if (!Double.isNaN(node.getLatitude()) && !Double.isNaN(node.getLongitude())) {
+                        int d1tile;
+
+                        // if both values exist, generate the "tile"
+                        double n = 256.0;  // "Zoom Level 8"
+                        double latRad = Math.toRadians(node.getLatitude());
+                        int xtile = (int) Math.floor((node.getLongitude() + 180.0) / 360.0 * n);
+                        int ytile = (int) Math.floor((1.0 - Math.log(Math.tan(latRad) + (1.0 / Math.cos(latRad))) / Math.PI) / 2.0 * n);
+
+                        if (xtile < 0) {
+                            xtile = 0;
+                        }
+                        if (xtile > 255) {
+                            xtile = 255;
+                        }
+                        if (ytile < 0) {
+                            ytile = 0;
+                        }
+                        if (ytile > 255) {
+                            ytile = 255;
+                        }
+
+                        // reduce 2 dimensions to 1 dimension
+                        d1tile = ytile * 256 + xtile;
+                        tile.vector[row] = d1tile;
                     }
 
                     break;
